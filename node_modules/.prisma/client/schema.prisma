@@ -1,0 +1,191 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  active
+  inactive
+}
+
+enum MovementType {
+  in
+  out
+  adjustment
+  transfer
+}
+
+enum ItemStatus {
+  in_stock
+  sold
+  removed
+}
+
+model Role {
+  id              Int              @id @default(autoincrement())
+  name            String           @unique @db.VarChar(50)
+  displayName     String           @map("display_name") @db.VarChar(100)
+  description     String?          @db.Text
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              Int              @id @default(autoincrement())
+  name            String           @unique @db.VarChar(100)
+  description     String?          @db.Text
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       Int @map("role_id")
+  permissionId Int @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permission")
+}
+
+model User {
+  id          Int        @id @default(autoincrement())
+  name        String     @db.VarChar(150)
+  email       String     @unique @db.VarChar(191)
+  password    String     @db.VarChar(255)
+  roleId      Int        @map("role_id")
+  role        Role       @relation(fields: [roleId], references: [id])
+  phone       String?    @db.VarChar(30)
+  avatarUrl   String?    @map("avatar_url") @db.VarChar(255)
+  status      UserStatus @default(active)
+  lastLoginAt DateTime?  @map("last_login_at")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  deletedAt   DateTime?  @map("deleted_at")
+
+  stockMovements StockMovement[]
+
+  @@index([roleId])
+  @@index([status])
+  @@map("users")
+}
+
+model Warehouse {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(150)
+  code      String   @unique @db.VarChar(30)
+  address   String?  @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  inventory      Inventory[]
+  stockMovements StockMovement[]
+  items          Item[]
+
+  @@map("warehouses")
+}
+
+model Product {
+  id          Int     @id @default(autoincrement())
+  sku         String  @unique @db.VarChar(50)
+  barcode     String  @unique @db.VarChar(50)
+  name        String  @db.VarChar(200)
+  description String? @db.Text
+  unit        String  @db.VarChar(20)
+
+  // Kept for database compatibility.
+  // The current API does not use reorderLevel.
+  reorderLevel Int @default(0) @map("reorder_level")
+
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  inventory      Inventory[]
+  stockMovements StockMovement[]
+  items          Item[]
+
+  @@index([barcode])
+  @@index([sku])
+  @@map("products")
+}
+
+model Item {
+  id Int @id @default(autoincrement())
+
+  itemCode String @unique @map("item_code") @db.VarChar(50)
+
+  name String? @db.VarChar(150)
+
+  serialNumber String? @unique @map("serial_number") @db.VarChar(100)
+
+  // Price belongs to the individual physical item.
+  price Decimal @default(0) @db.Decimal(12, 2)
+
+  productId   Int @map("product_id")
+  warehouseId Int @map("warehouse_id")
+
+  status ItemStatus @default(in_stock)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  product   Product   @relation(fields: [productId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@index([productId])
+  @@index([warehouseId])
+  @@index([status])
+  @@index([serialNumber])
+  @@map("items")
+}
+
+model Inventory {
+  id          Int      @id @default(autoincrement())
+  productId   Int      @map("product_id")
+  warehouseId Int      @map("warehouse_id")
+  quantity    Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  product   Product   @relation(fields: [productId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([productId, warehouseId])
+  @@map("inventory")
+}
+
+// Append-only ledger: application code must never UPDATE or DELETE rows here.
+model StockMovement {
+  id          Int          @id @default(autoincrement())
+  productId   Int          @map("product_id")
+  warehouseId Int          @map("warehouse_id")
+  userId      Int          @map("user_id")
+  type        MovementType
+  quantity    Int
+  reference   String?      @db.VarChar(100)
+  note        String?      @db.Text
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  product   Product   @relation(fields: [productId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([productId])
+  @@index([warehouseId])
+  @@map("stock_movements")
+}
